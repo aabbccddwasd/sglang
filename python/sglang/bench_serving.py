@@ -1401,7 +1401,10 @@ def sample_openai_requests(
         # This includes the messages but not the tools
         prompt_len = len(
             tokenizer.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=True
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_dict=False,
             )
         )
 
@@ -1693,6 +1696,7 @@ def create_mm_data_row(
             [{"role": "user", "content": content_items}],
             add_generation_prompt=True,
             tokenize=False,
+            return_dict=False,
         )
     except Exception as e:
         # Note (Xinyuan): This is a workaround for an issue where some tokenizers do not support content as a list. (e.g. InternVL)
@@ -1715,6 +1719,7 @@ def create_mm_data_row(
             [{"role": "user", "content": text_prompt}],
             add_generation_prompt=True,
             tokenize=False,
+            return_dict=False,
         )
         text_prompt_len = processor(
             text=[text_only_prompt],
