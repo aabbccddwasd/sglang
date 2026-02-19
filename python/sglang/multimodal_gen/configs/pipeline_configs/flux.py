@@ -665,12 +665,14 @@ class Flux2KleinPipelineConfig(Flux2PipelineConfig):
                     tokenize=False,
                     add_generation_prompt=True,
                     enable_thinking=False,
+                    return_dict=False,
                 )
             except TypeError:
                 return tokenizer.apply_chat_template(
                     messages,
                     tokenize=False,
                     add_generation_prompt=True,
+                    return_dict=False,
                 )
 
         texts = [_apply_chat_template(prompt) for prompt in prompts]

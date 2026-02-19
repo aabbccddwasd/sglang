@@ -440,22 +440,30 @@ class ModelConfig:
                 if is_deepseek_nsa(self.hf_text_config)
                 else None
             )
-            # Handle rope scaling
-            self.scaling = 1 / math.sqrt(self.qk_nope_head_dim + self.qk_rope_head_dim)
-            # in transformers v5, rope_scaling is just rope_parameters for backward compatibility
-            rope_scaling = self.hf_text_config.rope_scaling
-            if rope_scaling:
-                # v5 uses "rope_type", v4 uses "type"
-                rope_type = (
-                    rope_scaling.get("rope_type")
-                    or rope_scaling.get("type")
-                    or "default"
+
+            if "Glm4MoeLiteForCausalLM" in self.hf_config.architectures:
+                self.scaling = 1
+                self.hf_config.rope_scaling = None
+            else:
+                # Handle rope scaling
+                self.scaling = 1 / math.sqrt(
+                    self.qk_nope_head_dim + self.qk_rope_head_dim
                 )
-                if rope_type != "default":
-                    mscale_all_dim = rope_scaling.get("mscale_all_dim", False)
-                    scaling_factor = rope_scaling["factor"]
-                    mscale = yarn_get_mscale(scaling_factor, float(mscale_all_dim))
-                    self.scaling = self.scaling * mscale * mscale
+                # in transformers v5, rope_scaling is just rope_parameters for backward compatibility
+                rope_scaling = self.hf_text_config.rope_scaling
+                if rope_scaling:
+                    # v5 uses "rope_type", v4 uses "type"
+                    rope_type = (
+                        rope_scaling.get("rope_type")
+                        or rope_scaling.get("type")
+                        or "default"
+                    )
+                    if rope_type != "default":
+                        mscale_all_dim = rope_scaling.get("mscale_all_dim", False)
+                        scaling_factor = rope_scaling["factor"]
+                        mscale = yarn_get_mscale(scaling_factor, float(mscale_all_dim))
+                        self.scaling = self.scaling * mscale * mscale
+
         elif "MiniCPM3ForCausalLM" in self.hf_config.architectures:
             self.head_dim = 128
             self.attention_arch = AttentionArch.MLA
@@ -881,6 +889,12 @@ class ModelConfig:
         if self.quantization is not None:
             self.quantization = self.quantization.lower()
 
+        # Draft models with explicit unquant (quantization=None) should skip
+        # HF quant auto-detection — the MTP weights may be unquantized even
+        # though the main model checkpoint has a quantization_config.
+        if self.is_draft_model and self.quantization is None:
+            return
+
         # Parse quantization method from the HF and ModelSlim model config, if available.
         # Only one function should return config, other should return None.
         cfg_list = []
@@ -1013,31 +1027,27 @@ class ModelConfig:
         if tf_version_str is None:
             return
 
-        vision_config = getattr(self.hf_config, "vision_config", None)
-        is_glm_46vmoe = "glm-4.6v" in self.model_path.lower() or (
-            vision_config is not None
-            and getattr(vision_config, "model_type", None) == "glm4v_moe_vision"
-            # The vision config model type for GLM-4.5v is 'glm4v_moe',
-            # while for GLM-4.6v, it is 'glm4v_moe_vision'.
-        )
-        needs_tf_v5 = is_glm_46vmoe
-
         tf_version = version.parse(tf_version_str)
-        required_version = version.parse("5.0.0dev0")
 
-        if tf_version < required_version:
-            if needs_tf_v5:
-                raise ValueError(
-                    f"Transformers version {tf_version_str} is not supported for model {self.model_path} "
-                    f"or model type {self.hf_config.model_type}. "
-                    "Please upgrade transformers to >= 5.0.0."
-                )
-        elif not needs_tf_v5:
-            logger.warning(
-                f"Transformers version {tf_version_str} is used for model type {self.hf_config.model_type}. "
-                "If you experience issues related to RoPE parameters, "
-                "they may be due to incompatibilities between Transformers >=5.0.0 and some models. "
-                "You can try downgrading to transformers==4.57.1 as a workaround."
+        # Models that strictly require transformers >= 5.0.0
+        v5_only_model_types = {"glm4v_moe_vision", "glm_ocr", "glmasr"}
+        vision_config = getattr(self.hf_config, "vision_config", None)
+        model_type = getattr(self.hf_config, "model_type", "")
+        vision_model_type = getattr(vision_config, "model_type", "") if vision_config else ""
+
+        needs_tf_v5 = (
+            "glm-4.6v" in self.model_path.lower()
+            or model_type in v5_only_model_types
+            or vision_model_type in v5_only_model_types
+        )
+
+        required_version = version.parse("5.0.0dev0")
+        if tf_version < required_version and needs_tf_v5:
+            type_info = f" (model_type={model_type})" if model_type else ""
+            raise ValueError(
+                f"Transformers version {tf_version_str} is not supported for model "
+                f"{self.model_path}{type_info}. "
+                "Please upgrade transformers to >= 5.0.0."
             )
 
     def _get_hf_eos_token_id(self) -> Optional[Set[int]]:
