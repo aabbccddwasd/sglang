@@ -898,6 +898,17 @@ class ModelConfig:
             )
         quant_cfg = cfg_list[0] if cfg_list else None
 
+        # For draft model, if user explicitly specified unquant (quantization is None),
+        # skip automatic quantization detection from shared checkpoint config,
+        # because the draft model (e.g., MTP appended to file tail) is actually unquantized.
+        # Only auto-detect if draft model has its own independent quantization config.
+        if self.is_draft_model and self.quantization is None and quant_cfg is not None:
+            logger.info(
+                f"Draft model quantization is specified as unquant. "
+                f"Skipping automatic quantization detection from shared checkpoint config."
+            )
+            quant_cfg = None  # Skip auto-detection, keep quantization as None
+
         if quant_cfg is not None:
             quant_method = quant_cfg.get(
                 "quant_method", "" if not self.quantization else self.quantization
