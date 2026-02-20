@@ -200,10 +200,16 @@ def attn_backend_wrapper(runner: "ModelRunner", full_attn_backend: "AttentionBac
         check_environments()
         if runner.hybrid_gdn_config is not None:
             if is_blackwell():
-                assert (
-                    runner.server_args.attention_backend == "triton"
-                    or runner.server_args.attention_backend == "trtllm_mha"
-                ), "triton or trtllm_mha backend are the only supported backends on Blackwell GPUs for hybrid GDN models, use --attention-backend triton or --attention-backend trtllm_mha to specify the backend."
+                # Allow hybrid attention backends (prefill/decode separation) on Blackwell GPUs
+                # This enables using --prefill-attention-backend triton --decode-attention-backend trtllm_mha
+                # for better performance on SM120 where trtllm_mha prefill is not officially supported
+                supported_backends = ["triton", "trtllm_mha", "flashinfer", "torch_native"]
+                if runner.server_args.attention_backend not in supported_backends:
+                    logger.warning(
+                        f"Using attention backend '{runner.server_args.attention_backend}' with hybrid GDN on Blackwell. "
+                        f"Supported backends are {supported_backends}. "
+                        f"If using hybrid prefill/decode, configure with --prefill-attention-backend and --decode-attention-backend."
+                    )
             if is_npu():
                 assert (
                     runner.server_args.attention_backend == "ascend"
