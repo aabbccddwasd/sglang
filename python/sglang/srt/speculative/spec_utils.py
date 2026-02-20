@@ -707,6 +707,11 @@ def draft_tp_context(tp_group: GroupCoordinator):
 
 
 def detect_nan(logits_output: LogitsProcessorOutput):
+    # Skip NaN detection during CUDA graph capture, as torch.any(!=isinf|isnan)
+    # is not permitted when stream is capturing
+    if torch.cuda.is_available() and torch.cuda.is_current_stream_capturing():
+        return
+
     logits = logits_output.next_token_logits
     if torch.any(torch.isnan(logits)):
         logger.error("Detected errors during sampling! NaN in the logits.")
